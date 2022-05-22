@@ -1,0 +1,97 @@
+#!python3.10
+# getting the latest news for the last N days from https://edition.cnn.com/world with links
+# scraping website's content (the news' titles, links)
+# sending the content to my own email 
+
+from mail import password, email                          # my password and email are saved in the file mail.py and exported from it
+import requests                                           # http requests
+from bs4 import BeautifulSoup as Bs                       # for scraping
+import datetime                                           # date/time manipulation
+import pyinputplus as pyip                                # guarantees that the user's input is an integer
+import smtplib                                            # send the email
+from email.mime.multipart import MIMEMultipart            # email body
+from email.mime.text import MIMEText                      # email body_2
+
+def the_period(per):
+    """
+    the function creates a list of dates we want the to get the news of
+    :param per: user's input
+    :return: list of dates
+    """
+    dates = []
+    for day in range(per):
+        date = datetime.datetime.strftime(datetime.datetime.today() - datetime.timedelta(days=day), '%Y/%m/%d')
+        dates.append(date)
+        logging.debug(date)
+    return dates
+
+
+def extract_news(url, dates):
+    """
+    extracts CNN stories in Business for the last N days and returns
+    :return: the dictionary where keys - dates, values - titles and links according to the dates
+    """
+    date_title_link = {}
+    response = requests.get(url)
+    news = response.content
+    soup = Bs(news, 'html.parser')
+    cont = soup.find_all('span', attrs={'class': 'cd__headline-text vid-left-enabled'})
+    logging.debug([str(i) for i in cont])
+    for date in dates:
+        for tag in cont:
+            string_href = tag.parent.get('href')
+            if date in string_href:
+                string_title = tag.text
+                logging.debug(f"{str(date)} -- {str(string_title)}: {str(string_href)}")
+                news = [string_title, string_href]
+                date_title_link.setdefault(date, []).append(news)
+    return date_title_link
+
+def content_news(period):
+    """
+    the function prepares the content of a letter
+    :return: str content
+    """
+    p = the_period(period)
+    latest_news = extract_news('https://edition.cnn.com/business', p)       # returns a dictionary
+    cont = ''
+    for key, value in latest_news.items():
+        cont += f"<br>{'-' * 15} {key} {'-' * 15}<br>"
+        for v in value:
+            logging.debug(v)
+            cont += f"{v[0]}\n<br>https://edition.cnn.com{v[1]}<br>\n"
+    cont += '<br>--------------------------------------------------<br>'
+    cont += '<br><br>End of Message'
+    return cont
+
+period = pyip.inputInt("Over what period of time you want to get the news?\nNumber of days: ", min=1)
+now = datetime.datetime.now()
+
+# sending the email
+print('Composing E-mail...')
+
+SERVER = 'smtp.gmail.com'   # smtp server
+PORT = 587                  # port number
+FROM = email                # from email id
+TO = email                  # to email ids - it can be a list of ids
+PASS = password             # your email id password
+
+#  creating the message HEADER
+msg = MIMEMultipart()
+msg['Subject'] = f"Latest Business News. CNN [Automated E-mail] {now.day} - {now.month} - {now.year}"
+msg['From'] = FROM
+msg['To'] = TO
+#  creating the message BODY
+msg.attach(MIMEText(content_news(period), 'html'))
+print('Initiating Server...')
+
+server = smtplib.SMTP(SERVER, PORT)
+server.set_debuglevel(1)
+server.ehlo()
+server.starttls()
+
+server.login(FROM, PASS)
+server.sendmail(FROM, TO, msg.as_string())
+
+print('E-mail has been sent...')
+server.quit()
